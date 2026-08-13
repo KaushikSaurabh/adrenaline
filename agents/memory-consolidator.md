@@ -23,6 +23,9 @@ FOR EACH KEEPER:
 - POISONING GATE: only source-backed facts (a user utterance or a file) promote on first sight. Your own inferences go to `_UNCERTAIN.md`, not the durable store.
 - SECRET-REJECT: never write a credential value (`sk-…`, `github_pat_…`, `Bearer …`, keys). Redact to `[REDACTED]`, note where the real value lives.
 - SCHEMA on every file: frontmatter `name`, `description`, `metadata{ type, kind, status: active, scope, source, updated, supersedes[], volatile }`. Human-named kebab slugs, never hashes. Link with `[[slug]]`.
-- Keep the index in sync: add the one-line pointer to `_INDEX.md` (the FULL index) always; add it to `MEMORY.md` (the small HOT injected index) ONLY for a behavioral rule or active/blocked work. Keep `MEMORY.md` lean (the watchdog alerts past ~16KB; the auto-memory cap is ~25KB).
+- Keep the index in sync: add the one-line pointer to `_INDEX.md` (the FULL index) always; add it to `MEMORY.md` (the small HOT injected index) ONLY for a behavioral rule or active/blocked work.
+- **ADMISSION TEST for the hot index: "could the operator know to ask for this?"** If yes, it stays cold — naming the project makes the retriever find it, so a hot copy is paid for in every session including the ones that never touch it. Only what must fire UNPROMPTED earns hot: behavioral rules and genuinely active work.
+- **EVICTION — every consolidation, not just when adding.** Re-read the hot index and demote any entry whose work has shipped, been parked, or gone quiet. Never delete: the pointer must already exist in `_INDEX.md` before it leaves `MEMORY.md`, and back the file up first. Without eviction the index only ever grows.
+- **BUDGET ~12KB, hard cap ~25KB.** At budget, admitting an entry means evicting one. Say which you evicted in your report.
 
 WRITE uncommitted. Do NOT `git commit`/`push` — the watchdog owns that. Report what you wrote, superseded, and parked in `_UNCERTAIN.md`.
