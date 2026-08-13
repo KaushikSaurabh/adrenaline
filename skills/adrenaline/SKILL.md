@@ -11,7 +11,8 @@ and yours. What makes it more than a folder of notes is its **integrity layer**.
 
 ## Store layout
 - `${ADRENALINE_HOME:-~/.adrenaline}/` — one fact per markdown file (human-named slug).
-- `MEMORY.md` — the one-line index (hot, injected each session).
+- `MEMORY.md` — the small HOT index, injected each session (identity + behavioral rules + active work; kept lean, watchdog alerts past ~16KB).
+- `_INDEX.md` — the FULL index (not injected); the retriever greps it + the fact files. New facts go into `_INDEX.md` always, `MEMORY.md` only if behavioral/active.
 - `_UNCERTAIN.md` — holding pen for unconfirmed inferences (the poisoning gate).
 
 ## The three tiers

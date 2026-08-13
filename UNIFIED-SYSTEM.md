@@ -20,7 +20,7 @@ Governing laws:
 | **Middle (broker)** | `memory-retriever` (in) + `memory-consolidator` (out) subagents; `/wrap` command | warm |
 | **Backend** | durable owner-per-fact markdown, git-synced | cold |
 
-Store dir = `${ADRENALINE_HOME:-~/.adrenaline}`. `MEMORY.md` is the one-line index;
+Store dir = `${ADRENALINE_HOME:-~/.adrenaline}`. `MEMORY.md` is the small HOT index (injected each session, kept lean) and `_INDEX.md` is the FULL index (not injected, retriever greps it);
 `_UNCERTAIN.md` is the inference holding pen.
 
 ## Fact schema

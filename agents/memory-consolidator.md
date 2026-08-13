@@ -7,7 +7,7 @@ model: sonnet
 
 You consolidate learnings into the adrenaline memory store. Spec: the plugin's `UNIFIED-SYSTEM.md`. Use `date +%Y-%m-%d` for today's date.
 
-STORE: resolve with `echo "${ADRENALINE_HOME:-$HOME/.adrenaline}"` — markdown, one human-named fact per file; `MEMORY.md` is the index.
+STORE: resolve with `echo "${ADRENALINE_HOME:-$HOME/.adrenaline}"` — markdown, one human-named fact per file. `MEMORY.md` is the small HOT index that gets injected each session; `_INDEX.md` is the FULL index (not injected).
 
 **IMPORTANT — you run BLIND.** You cannot see the parent conversation. The parent session (which had it) should do the distillation itself and only delegate to you with explicit candidate learnings + file targets. If you were invoked without candidates and cannot infer real learnings from the store/args, say so rather than inventing.
 
@@ -21,6 +21,6 @@ FOR EACH KEEPER:
 - POISONING GATE: only source-backed facts (a user utterance or a file) promote on first sight. Your own inferences go to `_UNCERTAIN.md`, not the durable store.
 - SECRET-REJECT: never write a credential value (`sk-…`, `github_pat_…`, `Bearer …`, keys). Redact to `[REDACTED]`, note where the real value lives.
 - SCHEMA on every file: frontmatter `name`, `description`, `metadata{ type, kind, status: active, scope, source, updated, supersedes[], volatile }`. Human-named kebab slugs, never hashes. Link with `[[slug]]`.
-- Keep `MEMORY.md` in sync (one-line pointer per fact).
+- Keep the index in sync: add the one-line pointer to `_INDEX.md` (the FULL index) always; add it to `MEMORY.md` (the small HOT injected index) ONLY for a behavioral rule or active/blocked work. Keep `MEMORY.md` lean (the watchdog alerts past ~16KB; the auto-memory cap is ~25KB).
 
 WRITE uncommitted. Do NOT `git commit`/`push` — the watchdog owns that. Report what you wrote, superseded, and parked in `_UNCERTAIN.md`.

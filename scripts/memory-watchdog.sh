@@ -81,9 +81,12 @@ if git remote | grep -q .; then
 else log "no remote configured - local only"; fi
 
 # --- 4. consistency + backlog (reminders, not blocking) ---
-facts=$(find . -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' ! -name '_UNCERTAIN.md' ! -name 'README.md' 2>/dev/null | wc -l | tr -d ' ')
-idx=$(grep -cE '^[[:space:]]*-[[:space:]]*\[' MEMORY.md 2>/dev/null || echo 0)
-log "facts=$facts index=$idx"
+facts=$(find . -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' ! -name '_UNCERTAIN.md' ! -name 'README.md' ! -name '_INDEX.md' 2>/dev/null | wc -l | tr -d ' ')
+idxfile=MEMORY.md; [ -f _INDEX.md ] && idxfile=_INDEX.md   # _INDEX = full index when the hot/full split is in use
+idx=$(grep -cE '^[[:space:]]*-[[:space:]]*\[' "$idxfile" 2>/dev/null || echo 0)
+log "facts=$facts index($idxfile)=$idx"
+# MEMORY.md is the HOT injected index - guard its size (auto-memory cap ~25KB)
+if [ -f MEMORY.md ]; then memkb=$(( $(wc -c < MEMORY.md) / 1024 )); log "hot MEMORY.md = ${memkb}KB"; [ "$memkb" -gt 16 ] && notify "adrenaline: MEMORY.md near cap" "hot index ${memkb}KB (cap ~25KB) - split cold entries into _INDEX.md"; fi
 unc=$(grep -cE '^[[:space:]]*-[[:space:]]*\[' _UNCERTAIN.md 2>/dev/null || echo 0)
 [ "$unc" -ge 3 ] && notify "adrenaline: uncertain backlog" "$unc inferred facts to triage"
 

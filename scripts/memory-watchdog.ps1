@@ -66,9 +66,13 @@ if(git status --porcelain){ if($DryRun){ Log "DRYRUN would commit" } else { git 
 if(@(git remote).Count -gt 0){ if(-not $DryRun){ try { git push origin HEAD -q; Log "pushed -> origin" } catch { Log "push FAILED: $_"; Notify "adrenaline: push failed" "$_" } } } else { Log "no remote configured - local only" }
 
 # 4. consistency + backlog (reminder, not blocking)
-$mdCount  = (Get-ChildItem -Path $MemDir -Filter *.md -File | Where-Object { $_.Name -ne 'MEMORY.md' -and $_.Name -ne '_UNCERTAIN.md' -and $_.Name -ne 'README.md' }).Count
-$idxCount = @(Get-Content (Join-Path $MemDir 'MEMORY.md') -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count
-Log ("facts={0}  index={1}" -f $mdCount, $idxCount)
+$mdCount  = (Get-ChildItem -Path $MemDir -Filter *.md -File | Where-Object { $_.Name -notin @('MEMORY.md','_UNCERTAIN.md','README.md','_INDEX.md') }).Count
+$idxFile  = if(Test-Path (Join-Path $MemDir '_INDEX.md')){ '_INDEX.md' } else { 'MEMORY.md' }   # _INDEX = full index when the hot/full split is in use
+$idxCount = @(Get-Content (Join-Path $MemDir $idxFile) -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count
+Log ("facts={0}  index({1})={2}" -f $mdCount, $idxFile, $idxCount)
+# MEMORY.md is the HOT injected index - guard its size (auto-memory cap ~25KB) so it never silently truncates.
+$memFile = Join-Path $MemDir 'MEMORY.md'
+if(Test-Path $memFile){ $memKB = [math]::Round((Get-Item $memFile).Length / 1KB, 1); Log ("hot MEMORY.md = ${memKB}KB"); if($memKB -gt 16){ Notify "adrenaline: MEMORY.md near cap" ("hot index ${memKB}KB (cap ~25KB) - split cold entries into _INDEX.md") } }
 $unc = Join-Path $MemDir '_UNCERTAIN.md'
 $uncEntries = @(Get-Content $unc -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count
 if($uncEntries -gt 0){ Log ("reminder: _UNCERTAIN.md has {0} awaiting triage" -f $uncEntries) }

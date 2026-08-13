@@ -13,7 +13,7 @@ The consolidator subagent runs BLIND (it cannot see this conversation), so on a 
   - **then SWEEP: grep the store for the superseded claim's keywords and reconcile EVERY sibling — 0 stale hits, or flag them;**
   - poisoning gate: only source-backed facts promote; your inferences go to `_UNCERTAIN.md`;
   - secret-reject: never write a credential value (redact);
-  - full schema; keep `MEMORY.md` in sync.
+  - full schema; keep the index in sync - one-line pointer into `_INDEX.md` (FULL index) always, into `MEMORY.md` (small HOT injected index) ONLY for behavioral rules or active work (keep it lean; watchdog alerts >16KB).
 - Only delegate to the `memory-consolidator` subagent for a large isolated sweep, and hand it the candidate learnings + file targets — it can't discover them itself.
 
 ## 2. Reconcile + checkpoint
