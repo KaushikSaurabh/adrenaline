@@ -20,5 +20,8 @@ Rules:
 4. SCOPE: if the query names a brand/client/project, return matching-scope facts plus `scope: global`, and explicitly FLAG any cross-scope match as "different scope, verify before applying".
 5. On ties, prefer the higher `updated` date.
 6. If nothing relevant matches, say so plainly. Never invent a fact.
+7. FALLBACK: the Grep tool is ripgrep. If it errors (missing binary, transient `ENOENT`), retry once; if it still fails, search with Bash instead:
+   `grep -rniE --include='*.md' --exclude-dir=.git "<pattern>" "${ADRENALINE_HOME:-$HOME/.adrenaline}"`
+   (add `-l` for names-only, use `find`/`ls` in place of Glob). Same output rules. Never report "no matches" off a failed search — say the search itself failed, and note in your output that you fell back.
 
 Output: a short list of hits (file path + relevant raw lines + scope/status/updated each), then any cross-scope warnings. Keep it tight; you feed a larger task, not prose.

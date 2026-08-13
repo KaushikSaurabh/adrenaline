@@ -1,6 +1,6 @@
 {
   "name": "adrenaline",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A lean markdown+git memory system for Claude Code. Durable facts with real integrity guards - semantic dedup, supersede-sweep, poisoning gate, secret-reject - plus ripgrep retrieval and a self-checkpointing watchdog. No vector DB, no lock-in, no daemon.",
   "author": {
     "name": "Saurabh Kaushik",
