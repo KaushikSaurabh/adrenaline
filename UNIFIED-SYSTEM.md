@@ -76,6 +76,9 @@ FTS5/vectors are measure-first additions if grep ever gets noisy — not a defau
 - **Push fast-forward-only, never `--force`.** Conflicts abort + alert, never
   auto-merge into markdown.
 - **Secret-scan** on every commit (incremental every run, full sweep at most weekly).
+  Both watchdogs read one pattern list — `scripts/secret-patterns.txt` (override with
+  `ADRENALINE_SECRET_PATTERNS`) — so the two platforms can't drift apart; a missing or
+  empty list aborts the run rather than passing an unscanned store.
 - **Backup = a git remote** (use a *private* repo — the store holds your facts).
 
 ## Reliability — the watchdog

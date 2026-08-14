@@ -5,19 +5,32 @@
 #   consistency-check -> heartbeat -> notify-on-issue.
 #
 # Usage:  pwsh -NoProfile -File memory-watchdog.ps1 [-DryRun] [-ShowArm]
-# Env:    ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional)
+# Env:    ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional),
+#         ADRENALINE_SECRET_PATTERNS (default .\secret-patterns.txt, shared with the sh)
 
 [CmdletBinding()]
 param(
   [switch]$DryRun,
   [switch]$ShowArm,
   [string]$MemDir    = $(if($env:ADRENALINE_HOME){ $env:ADRENALINE_HOME } else { Join-Path $HOME '.adrenaline' }),
-  [string]$NtfyTopic = $env:ADRENALINE_NTFY_TOPIC
+  [string]$NtfyTopic = $env:ADRENALINE_NTFY_TOPIC,
+  [string]$PatternFile = $(if($env:ADRENALINE_SECRET_PATTERNS){ $env:ADRENALINE_SECRET_PATTERNS } else { Join-Path $PSScriptRoot 'secret-patterns.txt' })
 )
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $MemDir '.watchdog.log'; $heart = Join-Path $MemDir '.watchdog.heartbeat'; $fullMarker = Join-Path $MemDir '.watchdog.lastfullscan'
 function Log($m){ ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) | Tee-Object -FilePath $log -Append }
 function Notify($t,$msg){ if(-not $NtfyTopic){ Log "NOTIFY (no topic set): $t - $msg"; return } try { & curl.exe -s -H "Title: $t" -H "Priority: high" -d $msg "https://ntfy.sh/$NtfyTopic" | Out-Null } catch { Log "ntfy failed: $_" } }
+# shared secret-reject patterns (same file the bash watchdog reads); '#'/blank lines are comments
+function Get-SecretPattern($path){ @(Get-Content -LiteralPath $path -ErrorAction SilentlyContinue | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) }
+# a file the scanner should read: exists, and is not git internals or the watchdog's own files
+function Test-Scannable($path){
+  if(-not (Test-Path -LiteralPath $path -PathType Leaf)){ return $false }
+  if($path -match '[\\/]\.git[\\/]'){ return $false }
+  $leaf = Split-Path $path -Leaf
+  return -not ($leaf -like '.watchdog.*' -or $leaf -like 'memory-watchdog.*' -or $leaf -eq 'secret-patterns.txt')
+}
+# index/backlog pointers are markdown list links: '- [slug](...)'
+function Get-PointerCount($path){ @(Get-Content -LiteralPath $path -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count }
 
 if($ShowArm){
 @"
@@ -34,13 +47,14 @@ if(-not (Test-Path (Join-Path $MemDir '.git'))){ Write-Output "adrenaline: no gi
 Set-Location $MemDir
 Log "=== watchdog start (DryRun=$DryRun) ==="
 
-$secretPatterns = @('github_pat_[A-Za-z0-9_]{20,}','gh[pousr]_[A-Za-z0-9]{20,}','glpat-[A-Za-z0-9_-]{20,}','sk-[A-Za-z0-9_-]{20,}','sk_(live|test)_[0-9A-Za-z]{16,}','AKIA[0-9A-Z]{16}','AIza[0-9A-Za-z_-]{35}','GOCSPX-[0-9A-Za-z_-]{20,}','xox[baprse]-[A-Za-z0-9-]{10,}','xapp-[0-9]-[A-Za-z0-9-]{10,}','eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}','-----BEGIN [A-Z ]*PRIVATE KEY-----')
+$secretPatterns = Get-SecretPattern $PatternFile
+if($secretPatterns.Count -eq 0){ Log "no usable secret patterns at $PatternFile"; Notify "adrenaline: watchdog misconfigured" "missing/empty secret patterns: $PatternFile"; Log "=== abort (cannot secret-scan) ==="; return }
 
 # 1. secret scan: incremental (changed/new) every run; full sweep at most weekly.
 $fullDue = $true
 if(Test-Path $fullMarker){ try { $fullDue = ((Get-Date) - [datetime](Get-Content $fullMarker -Raw)).TotalDays -ge 7 } catch { $fullDue = $true } }
 if($fullDue){
-  $scanFiles = @(Get-ChildItem -Recurse -File -Path $MemDir | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -notlike '.watchdog.*' -and $_.Name -ne 'memory-watchdog.ps1' } | ForEach-Object { $_.FullName })
+  $scanFiles = @(Get-ChildItem -Recurse -File -Path $MemDir | ForEach-Object { $_.FullName } | Where-Object { Test-Scannable $_ })
   $scanMode = "full sweep, $($scanFiles.Count) files"
 } else {
   $scanFiles = @()
@@ -48,8 +62,8 @@ if($fullDue){
     if($line.Length -lt 4){ continue }
     if($line.Substring(0,2) -match 'D'){ continue }
     $rel = $line.Substring(3).Trim('"'); if($rel -match ' -> '){ $rel = ($rel -split ' -> ')[-1].Trim('"') }
-    $abs = Join-Path $MemDir $rel; $leaf = Split-Path $abs -Leaf
-    if((Test-Path -LiteralPath $abs) -and $abs -notmatch '\\\.git\\' -and $leaf -notlike '.watchdog.*' -and $leaf -ne 'memory-watchdog.ps1'){ $scanFiles += $abs }
+    $abs = Join-Path $MemDir $rel
+    if(Test-Scannable $abs){ $scanFiles += $abs }
   }
   $scanMode = "incremental, $($scanFiles.Count) changed"
 }
@@ -68,13 +82,13 @@ if(@(git remote).Count -gt 0){ if(-not $DryRun){ try { git push origin HEAD -q; 
 # 4. consistency + backlog (reminder, not blocking)
 $mdCount  = (Get-ChildItem -Path $MemDir -Filter *.md -File | Where-Object { $_.Name -notin @('MEMORY.md','_UNCERTAIN.md','README.md','_INDEX.md') }).Count
 $idxFile  = if(Test-Path (Join-Path $MemDir '_INDEX.md')){ '_INDEX.md' } else { 'MEMORY.md' }   # _INDEX = full index when the hot/full split is in use
-$idxCount = @(Get-Content (Join-Path $MemDir $idxFile) -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count
+$idxCount = Get-PointerCount (Join-Path $MemDir $idxFile)
 Log ("facts={0}  index({1})={2}" -f $mdCount, $idxFile, $idxCount)
 # MEMORY.md is the HOT injected index - guard its size (auto-memory cap ~25KB) so it never silently truncates.
 $memFile = Join-Path $MemDir 'MEMORY.md'
 if(Test-Path $memFile){ $memKB = [math]::Round((Get-Item $memFile).Length / 1KB, 1); Log ("hot MEMORY.md = ${memKB}KB"); if($memKB -gt 16){ Notify "adrenaline: MEMORY.md near cap" ("hot index ${memKB}KB (cap ~25KB) - split cold entries into _INDEX.md") } }
 $unc = Join-Path $MemDir '_UNCERTAIN.md'
-$uncEntries = @(Get-Content $unc -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*-\s*\[' }).Count
+$uncEntries = Get-PointerCount $unc
 if($uncEntries -gt 0){ Log ("reminder: _UNCERTAIN.md has {0} awaiting triage" -f $uncEntries) }
 if($uncEntries -ge 3){ Notify "adrenaline: uncertain backlog" ("{0} inferred facts to triage" -f $uncEntries) }
 
