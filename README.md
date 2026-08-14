@@ -81,6 +81,11 @@ metadata:
 
 Supersede by appending old text under `## Superseded (date)` — never silent-delete.
 
+## Tests
+
+`bash tests/run.sh` — unit tests for the watchdog (bash + git only, no framework,
+no network). Details in [`tests/README.md`](./tests/README.md).
+
 ## Platforms
 
 Watchdog ships for Windows (`memory-watchdog.ps1`) and macOS/Linux
