@@ -49,7 +49,11 @@ bundled **`adrenaline`** skill.
 - **`ADRENALINE_HOME`** — your memory store directory (default `~/.adrenaline`).
   Create + init it once: `mkdir -p ~/.adrenaline && git -C ~/.adrenaline init`.
 - **`ADRENALINE_NTFY_TOPIC`** — optional [ntfy](https://ntfy.sh) topic for watchdog
-  phone alerts.
+  phone alerts. An ntfy.sh topic is a shared secret at best: anyone who knows the
+  name can subscribe, so alerts carry file names only, never file contents. Use an
+  unguessable topic (`[A-Za-z0-9_-]` only; other characters are refused).
+- **`ADRENALINE_NTFY_TOKEN`** — optional ntfy access token, sent as a bearer token so
+  a protected topic can be used instead of a public one.
 
 ## Use
 

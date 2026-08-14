@@ -76,6 +76,9 @@ FTS5/vectors are measure-first additions if grep ever gets noisy — not a defau
 - **Push fast-forward-only, never `--force`.** Conflicts abort + alert, never
   auto-merge into markdown.
 - **Secret-scan** on every commit (incremental every run, full sweep at most weekly).
+  The incremental pass covers exactly what `git add -A` is about to commit — NUL-delimited
+  paths, `core.quotePath=false`, untracked directories expanded (`-uall`) — so a file can
+  never be committed unscanned because its name or its parent directory was unparseable.
 - **Backup = a git remote** (use a *private* repo — the store holds your facts).
 
 ## Reliability — the watchdog

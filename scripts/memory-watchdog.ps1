@@ -5,19 +5,29 @@
 #   consistency-check -> heartbeat -> notify-on-issue.
 #
 # Usage:  pwsh -NoProfile -File memory-watchdog.ps1 [-DryRun] [-ShowArm]
-# Env:    ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional)
+# Env:    ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional),
+#         ADRENALINE_NTFY_TOKEN (optional ntfy access token)
 
 [CmdletBinding()]
 param(
   [switch]$DryRun,
   [switch]$ShowArm,
   [string]$MemDir    = $(if($env:ADRENALINE_HOME){ $env:ADRENALINE_HOME } else { Join-Path $HOME '.adrenaline' }),
-  [string]$NtfyTopic = $env:ADRENALINE_NTFY_TOPIC
+  [string]$NtfyTopic = $env:ADRENALINE_NTFY_TOPIC,
+  [string]$NtfyToken = $env:ADRENALINE_NTFY_TOKEN
 )
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $MemDir '.watchdog.log'; $heart = Join-Path $MemDir '.watchdog.heartbeat'; $fullMarker = Join-Path $MemDir '.watchdog.lastfullscan'
 function Log($m){ ("{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) | Tee-Object -FilePath $log -Append }
-function Notify($t,$msg){ if(-not $NtfyTopic){ Log "NOTIFY (no topic set): $t - $msg"; return } try { & curl.exe -s -H "Title: $t" -H "Priority: high" -d $msg "https://ntfy.sh/$NtfyTopic" | Out-Null } catch { Log "ntfy failed: $_" } }
+# ntfy topics are unauthenticated by default: anyone who knows the topic can read it,
+# so notifications carry file names only, never file contents.
+function Notify($t,$msg){
+  if(-not $NtfyTopic){ Log "NOTIFY (no topic set): $t - $msg"; return }
+  if($NtfyTopic -notmatch '^[A-Za-z0-9_-]+$'){ Log "NOTIFY (invalid ADRENALINE_NTFY_TOPIC, refusing to call ntfy): $t - $msg"; return }
+  $headers = @('-H', "Title: $t", '-H', 'Priority: high')
+  if($NtfyToken){ $headers += @('-H', "Authorization: Bearer $NtfyToken") }
+  try { & curl.exe -s --proto '=https' --max-time 10 @headers --data-binary $msg "https://ntfy.sh/$NtfyTopic" | Out-Null } catch { Log "ntfy failed: $_" }
+}
 
 if($ShowArm){
 @"
@@ -30,32 +40,46 @@ Register-ScheduledTask -TaskName 'AdrenalineWatchdog' -Action `$a -Trigger `$t -
   return
 }
 
-if(-not (Test-Path (Join-Path $MemDir '.git'))){ Write-Output "adrenaline: no git repo at $MemDir  (run: git -C `"$MemDir`" init)"; return }
+if(-not (Test-Path -LiteralPath (Join-Path $MemDir '.git'))){ Write-Output "adrenaline: no git repo at $MemDir  (run: git -C `"$MemDir`" init)"; exit 1 }
 Set-Location $MemDir
 Log "=== watchdog start (DryRun=$DryRun) ==="
 
-$secretPatterns = @('github_pat_[A-Za-z0-9_]{20,}','gh[pousr]_[A-Za-z0-9]{20,}','glpat-[A-Za-z0-9_-]{20,}','sk-[A-Za-z0-9_-]{20,}','sk_(live|test)_[0-9A-Za-z]{16,}','AKIA[0-9A-Z]{16}','AIza[0-9A-Za-z_-]{35}','GOCSPX-[0-9A-Za-z_-]{20,}','xox[baprse]-[A-Za-z0-9-]{10,}','xapp-[0-9]-[A-Za-z0-9-]{10,}','eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}','-----BEGIN [A-Z ]*PRIVATE KEY-----')
+$secretPatterns = @('github_pat_[A-Za-z0-9_]{20,}','gh[pousr]_[A-Za-z0-9]{20,}','glpat-[A-Za-z0-9_-]{20,}','sk-[A-Za-z0-9_-]{20,}','(sk|rk)_(live|test)_[0-9A-Za-z]{16,}','A(KIA|SIA)[0-9A-Z]{16}','npm_[A-Za-z0-9]{36}','hf_[A-Za-z0-9]{30,}','dop_v1_[a-f0-9]{64}','SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}','Authorization: *(Bearer|Basic) +[A-Za-z0-9._~+/=-]{16,}','AIza[0-9A-Za-z_-]{35}','GOCSPX-[0-9A-Za-z_-]{20,}','xox[baprse]-[A-Za-z0-9-]{10,}','xapp-[0-9]-[A-Za-z0-9-]{10,}','eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}','-----BEGIN [A-Z ]*PRIVATE KEY-----')
 
 # 1. secret scan: incremental (changed/new) every run; full sweep at most weekly.
 $fullDue = $true
 if(Test-Path $fullMarker){ try { $fullDue = ((Get-Date) - [datetime](Get-Content $fullMarker -Raw)).TotalDays -ge 7 } catch { $fullDue = $true } }
+function Test-Scannable($path){
+  $leaf = Split-Path $path -Leaf
+  if($path -match '[\\/]\.git[\\/]'){ return $false }
+  if($leaf -like '.watchdog.*'){ return $false }
+  if($leaf -in @('memory-watchdog.ps1','memory-watchdog.sh')){ return $false }
+  return $true
+}
 if($fullDue){
-  $scanFiles = @(Get-ChildItem -Recurse -File -Path $MemDir | Where-Object { $_.FullName -notmatch '\\\.git\\' -and $_.Name -notlike '.watchdog.*' -and $_.Name -ne 'memory-watchdog.ps1' } | ForEach-Object { $_.FullName })
+  # -Force so hidden/dot files are scanned too - they get committed by `git add -A` either way.
+  $scanFiles = @(Get-ChildItem -Recurse -File -Force -LiteralPath $MemDir | Where-Object { Test-Scannable $_.FullName } | ForEach-Object { $_.FullName })
   $scanMode = "full sweep, $($scanFiles.Count) files"
 } else {
+  # -z + core.quotePath=false + -uall: paths with spaces/quotes/non-ASCII bytes stay
+  # verbatim and untracked directories expand to their files, so nothing `git add -A`
+  # is about to commit slips past the scan unseen.
   $scanFiles = @()
-  foreach($line in @(git status --porcelain)){
+  $entries = @(((& git -c core.quotePath=false status --porcelain -z -uall | Out-String).TrimEnd("`r","`n")) -split "`0" | Where-Object { $_ -ne '' })
+  for($i = 0; $i -lt $entries.Count; $i++){
+    $line = $entries[$i]
     if($line.Length -lt 4){ continue }
-    if($line.Substring(0,2) -match 'D'){ continue }
-    $rel = $line.Substring(3).Trim('"'); if($rel -match ' -> '){ $rel = ($rel -split ' -> ')[-1].Trim('"') }
-    $abs = Join-Path $MemDir $rel; $leaf = Split-Path $abs -Leaf
-    if((Test-Path -LiteralPath $abs) -and $abs -notmatch '\\\.git\\' -and $leaf -notlike '.watchdog.*' -and $leaf -ne 'memory-watchdog.ps1'){ $scanFiles += $abs }
+    $xy = $line.Substring(0,2)
+    if($xy -match 'R|C'){ $i++ }        # rename/copy: the next field is the source path
+    if($xy -match 'D'){ continue }
+    $abs = Join-Path $MemDir $line.Substring(3)
+    if((Test-Path -LiteralPath $abs -PathType Leaf) -and (Test-Scannable $abs)){ $scanFiles += $abs }
   }
   $scanMode = "incremental, $($scanFiles.Count) changed"
 }
 $hits = @()
 foreach($f in $scanFiles){ $c = Get-Content -Raw -LiteralPath $f -ErrorAction SilentlyContinue; if($null -eq $c){ continue }; foreach($p in $secretPatterns){ if($c -match $p){ $hits += ("{0}: {1}" -f (Split-Path $f -Leaf), $p) } } }
-if($hits.Count -gt 0){ Log ("SECRET SCAN FAILED - refusing to commit/push: " + ($hits -join '; ')); Notify "adrenaline: SECRET DETECTED" ($hits -join '; '); Log "=== abort (secrets present) ==="; return }
+if($hits.Count -gt 0){ Log ("SECRET SCAN FAILED - refusing to commit/push: " + ($hits -join '; ')); Notify "adrenaline: SECRET DETECTED" ($hits -join '; '); Log "=== abort (secrets present) ==="; exit 2 }
 Log ("secret scan clean ($scanMode)")
 if($fullDue -and -not $DryRun){ (Get-Date -Format o) | Set-Content -LiteralPath $fullMarker }
 
