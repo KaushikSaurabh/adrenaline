@@ -60,6 +60,10 @@ bundled **`adrenaline`** skill.
 - Schedule the watchdog to auto-checkpoint and back up to a git remote:
   - Windows: `scripts/memory-watchdog.ps1` (`-ShowArm` prints the scheduled-task command)
   - macOS/Linux: `scripts/memory-watchdog.sh` (add to cron/launchd)
+  - It fails closed (a scan it can't complete never reaches a commit or a push) and
+    reports through its exit code — `0` clean, `1` setup, `2` secret found, `3` scan
+    incomplete, `4` degraded (commit/push/notify failed) — so a scheduled run can't
+    fail silently. The heartbeat records the verdict too (`status=ok|degraded`).
 
 ## Fact schema
 

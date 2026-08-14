@@ -86,6 +86,14 @@ It secret-scans, commits, pushes, checks consistency (facts vs index), heartbeat
 alerts via ntfy only on actionable events (secret / push-fail); the uncertain backlog
 is a reminder, not an alarm.
 
+**It fails closed and it fails loudly.** A scan that cannot enumerate or read every
+candidate file is not a clean scan: it aborts before the commit/push instead of
+treating the unverified store as safe. A failed commit skips the push (HEAD would not
+be the store's state). Every step reports through the exit code — `0` clean, `1` setup,
+`2` secret found, `3` scan incomplete, `4` ran but degraded — so a scheduled run cannot
+fail silently, and the heartbeat carries the verdict (`status=ok|degraded`) rather than
+implying health by existing.
+
 ## Rejected on purpose
 - **Vector DB / knowledge graph** — heavy, lock-in, and over-engineered at this scale;
   grep wins. Add a hybrid layer only if measured need appears.
