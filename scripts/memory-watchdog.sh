@@ -9,29 +9,43 @@
 #
 # Usage:   bash memory-watchdog.sh            # real run
 #          bash memory-watchdog.sh --dry       # no writes
-# Env:     ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional)
+# Env:     ADRENALINE_HOME (default ~/.adrenaline), ADRENALINE_NTFY_TOPIC (optional),
+#          ADRENALINE_SECRET_PATTERNS (default ./secret-patterns.txt, shared with the ps1)
 # Schedule it via cron (Linux) or launchd (macOS). Add to cron with e.g.:
 #   @reboot bash /path/to/memory-watchdog.sh   (or an hourly entry)
 
 set -uo pipefail
+SCRIPTDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MEMDIR="${ADRENALINE_HOME:-$HOME/.adrenaline}"
 NTFY="${ADRENALINE_NTFY_TOPIC:-}"
 DRY="${1:-}"
 LOG="$MEMDIR/.watchdog.log"
 HEART="$MEMDIR/.watchdog.heartbeat"
 FULLMARK="$MEMDIR/.watchdog.lastfullscan"
+PATFILE="${ADRENALINE_SECRET_PATTERNS:-$SCRIPTDIR/secret-patterns.txt}"
 
 log(){ printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" | tee -a "$LOG"; }
 notify(){
   if [ -n "$NTFY" ]; then curl -s -H "Title: $1" -H "Priority: high" -d "$2" "https://ntfy.sh/$NTFY" >/dev/null 2>&1 || true
   else log "NOTIFY (no topic set): $1 - $2"; fi
 }
+# shared secret-reject patterns, joined into one ERE alternation
+secret_pattern(){ grep -Ev '^[[:space:]]*(#|$)' "$PATFILE" | tr -d '\r' | paste -sd '|' -; }
+# a file the scanner should read: exists, and is not git internals or watchdog's own files
+scannable(){
+  case "$1" in .git/*|*/.git/*|*.watchdog.*|.watchdog.*|*memory-watchdog.*|*secret-patterns.txt) return 1;; esac
+  [ -f "$1" ]
+}
+# index/backlog pointers are markdown list links: '- [slug](...)'
+count_pointers(){ grep -cE '^[[:space:]]*-[[:space:]]*\[' "$1" 2>/dev/null || echo 0; }
 
 [ -d "$MEMDIR/.git" ] || { echo "adrenaline: no git repo at $MEMDIR (run: git -C \"$MEMDIR\" init)"; exit 1; }
 cd "$MEMDIR" || exit 1
 log "=== watchdog start (dry=${DRY:-no}) ==="
 
-PATTERNS='github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|sk_(live|test)_[0-9A-Za-z]{16,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|GOCSPX-[0-9A-Za-z_-]{20,}|xox[baprse]-[A-Za-z0-9-]{10,}|xapp-[0-9]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{6,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+[ -f "$PATFILE" ] || { log "no secret-pattern file at $PATFILE"; notify "adrenaline: watchdog misconfigured" "missing secret patterns: $PATFILE"; log "=== abort (cannot secret-scan) ==="; exit 3; }
+PATTERNS=$(secret_pattern)
+[ -n "$PATTERNS" ] || { log "secret-pattern file $PATFILE is empty"; notify "adrenaline: watchdog misconfigured" "empty secret patterns: $PATFILE"; log "=== abort (cannot secret-scan) ==="; exit 3; }
 
 # --- 1. secret scan: incremental every run, full sweep at most weekly ---
 fulldue=1
@@ -50,8 +64,7 @@ fi
 hits=""; count=0
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  [ -f "$f" ] || continue
-  case "$f" in .git/*|*.watchdog.*|.watchdog.*|*memory-watchdog.*) continue;; esac
+  scannable "$f" || continue
   count=$((count + 1))
   if grep -Eq "$PATTERNS" "$f" 2>/dev/null; then hits="$hits $f"; fi
 done <<EOF
@@ -83,11 +96,11 @@ else log "no remote configured - local only"; fi
 # --- 4. consistency + backlog (reminders, not blocking) ---
 facts=$(find . -maxdepth 1 -name '*.md' ! -name 'MEMORY.md' ! -name '_UNCERTAIN.md' ! -name 'README.md' ! -name '_INDEX.md' 2>/dev/null | wc -l | tr -d ' ')
 idxfile=MEMORY.md; [ -f _INDEX.md ] && idxfile=_INDEX.md   # _INDEX = full index when the hot/full split is in use
-idx=$(grep -cE '^[[:space:]]*-[[:space:]]*\[' "$idxfile" 2>/dev/null || echo 0)
+idx=$(count_pointers "$idxfile")
 log "facts=$facts index($idxfile)=$idx"
 # MEMORY.md is the HOT injected index - guard its size (auto-memory cap ~25KB)
 if [ -f MEMORY.md ]; then memkb=$(( $(wc -c < MEMORY.md) / 1024 )); log "hot MEMORY.md = ${memkb}KB"; [ "$memkb" -gt 16 ] && notify "adrenaline: MEMORY.md near cap" "hot index ${memkb}KB (cap ~25KB) - split cold entries into _INDEX.md"; fi
-unc=$(grep -cE '^[[:space:]]*-[[:space:]]*\[' _UNCERTAIN.md 2>/dev/null || echo 0)
+unc=$(count_pointers _UNCERTAIN.md)
 [ "$unc" -ge 3 ] && notify "adrenaline: uncertain backlog" "$unc inferred facts to triage"
 
 # --- 5. heartbeat ---

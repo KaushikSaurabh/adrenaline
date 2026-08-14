@@ -42,7 +42,9 @@ Then the watchdog secret-scans, commits, and pushes.
 
 ## The watchdog
 `scripts/memory-watchdog.{ps1,sh}` — scheduled, pure git/fs/notify (never runs
-`claude`). Secret-scan is incremental every run, full sweep at most weekly. Commits,
+`claude`). Secret-scan is incremental every run, full sweep at most weekly, driven by
+the shared `scripts/secret-patterns.txt` (both platforms; override with
+`ADRENALINE_SECRET_PATTERNS`) — no patterns, no run. Commits,
 pushes to a remote (offsite backup), checks consistency, alerts via ntfy on real
 issues (secret / push-fail), and treats the uncertain backlog as a reminder, not an
 alarm.
